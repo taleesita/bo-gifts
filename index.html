@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Bo Gifts">
+<meta name="theme-color" content="#28364e">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<title>Bo Gifts</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme: { extend: { colors: {
+  navy: { 50:'#f2f4f8', 100:'#e1e6ef', 200:'#c3cbdb', 300:'#94a1bb', 400:'#64759a', 500:'#46577c', 600:'#364566', 700:'#28364e', 800:'#1f2a3e', 900:'#161e2d' },
+  cream: { 50:'#fcf9f4', 100:'#f6efe3', 200:'#ecdfcb', 300:'#dfcaa9', 400:'#cdb083' }
+}}}};
+</script>
+<style>
+body { font-family: system-ui, -apple-system, sans-serif; margin: 0; -webkit-tap-highlight-color: transparent }
+.tab-active { border-bottom: 3px solid #28364e; color: #28364e; font-weight: 600 }
+.chip { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 0.68rem; font-weight: 500; white-space: nowrap }
+.modal-bg { background: rgba(22,30,45,0.55) }
+input, select, textarea { font-size: 16px } /* prevent iOS zoom */
+.grp-body.collapsed { display: none }
+.caret { transition: transform .15s } .collapsed-caret { transform: rotate(-90deg) }
+</style>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="config.js"></script>
+</head>
+<body class="bg-cream-50 min-h-screen text-gray-800">
+
+<header class="bg-white border-b border-cream-200 sticky top-0 z-40" style="display:none">
+  <div class="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
+    <div class="flex items-center gap-2">
+      <img src="icon-192.png" alt="" class="w-8 h-8 rounded-lg">
+      <h1 class="text-xl font-bold text-navy-700">Bo Gifts</h1>
+    </div>
+    <div class="relative">
+      <button onclick="toggleGearMenu()" id="gearBtn" class="text-gray-400 hover:text-navy-700 text-xl px-1" title="Settings">&#9881;</button>
+      <div id="gearMenu" class="hidden absolute right-0 top-10 bg-white border rounded-lg shadow-lg py-2 w-56 z-50">
+        <div id="gearUser" class="px-4 py-2 text-xs text-gray-400 border-b">Not signed in</div>
+        <button onclick="exportCSV();toggleGearMenu()" class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-cream-100">&#8681; Export all to CSV</button>
+        <button id="gearSignOut" onclick="doSignOut();toggleGearMenu()" class="hidden w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50">Sign out</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div id="appContent" style="display:none">
+  <nav class="bg-white border-b border-cream-200">
+    <div class="max-w-4xl mx-auto px-4 flex gap-6">
+      <button class="tab py-3 text-sm" data-tab="received" onclick="switchTab('received')">Received</button>
+      <button class="tab py-3 text-sm" data-tab="given" onclick="switchTab('given')">Given</button>
+      <button class="tab py-3 text-sm" data-tab="people" onclick="switchTab('people')">By Person</button>
+    </div>
+  </nav>
+
+  <div class="bg-navy-700 text-white">
+    <div class="max-w-4xl mx-auto px-4 py-4 grid grid-cols-3 gap-4 text-center" id="summary"></div>
+  </div>
+
+  <div class="max-w-4xl mx-auto px-4 pt-4">
+    <div class="flex flex-wrap gap-2 items-center">
+      <input id="search" type="search" placeholder="Search person, gift, occasion…" oninput="render()" class="flex-1 min-w-[180px] px-3 py-2 border border-cream-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-navy-300">
+      <select id="occFilter" onchange="render()" class="px-3 py-2 border border-cream-300 rounded-lg bg-white text-sm max-w-[180px]"></select>
+      <button id="tyFilterBtn" onclick="toggleTyFilter()" class="px-3 py-2 border rounded-lg text-sm whitespace-nowrap">&#9993;&#65039; Thank-you pending</button>
+      <button id="addBtn" onclick="openForm()" class="px-4 py-2 bg-navy-700 text-white rounded-lg text-sm font-medium hover:bg-navy-800 whitespace-nowrap">+ Add gift</button>
+    </div>
+  </div>
+
+  <main class="max-w-4xl mx-auto px-4 py-4 pb-24" id="main"></main>
+</div>
+
+<!-- Login -->
+<div id="loginScreen" style="display:none" class="flex flex-col items-center justify-center py-20 px-4 text-center">
+  <img src="icon-512.png" alt="" class="w-28 h-28 mb-5 drop-shadow">
+  <h1 class="text-2xl font-bold text-navy-700 mb-2">Bo Gifts</h1>
+  <p class="text-gray-500 text-sm mb-8">Gifts given &amp; received, all in one place</p>
+  <button onclick="doSignIn()" class="px-6 py-3 bg-navy-700 text-white rounded-lg text-sm font-medium hover:bg-navy-800 flex items-center gap-2">
+    <svg class="w-5 h-5" viewBox="0 0 24 24"><path fill="white" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="white" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="white" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="white" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+    Sign in with Google</button>
+  <p id="loginErr" class="text-red-600 text-sm mt-4"></p>
+</div>
+
+<!-- Not configured -->
+<div id="setupScreen" style="display:none" class="max-w-md mx-auto py-20 px-4 text-center">
+  <h1 class="text-2xl font-bold text-navy-700 mb-2">Bo Gifts</h1>
+  <p class="text-gray-600 text-sm">Firebase isn't configured yet. Paste your Firebase config into <b>deploy.html</b> and deploy again (see SETUP.md).</p>
+</div>
+
+<!-- Add / edit modal -->
+<div id="modal" class="hidden fixed inset-0 modal-bg z-50 flex items-end sm:items-center justify-center" onclick="if(event.target===this)closeForm()">
+  <div class="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[92vh] overflow-y-auto">
+    <div class="px-5 py-4 border-b flex justify-between items-center sticky top-0 bg-white">
+      <h2 id="formTitle" class="font-bold text-navy-700 text-lg">Add gift</h2>
+      <button onclick="closeForm()" class="text-gray-400 text-2xl leading-none">&times;</button>
+    </div>
+    <div class="px-5 py-4 space-y-3">
+      <div>
+        <label class="text-xs font-semibold text-gray-600" id="fPersonLabel">From</label>
+        <input id="fPerson" list="peopleList" dir="auto" oninput="renderHint()" class="w-full px-3 py-2 border rounded-lg" placeholder="Name(s)">
+        <div id="fHint" class="mt-2"></div>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-gray-600">Occasion</label>
+        <input id="fOccasion" list="occList" class="w-full px-3 py-2 border rounded-lg" placeholder="e.g. Our Wedding, Noa's Birth, Sam's Bar Mitzvah">
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-gray-600">Gift / item</label>
+        <input id="fGift" dir="auto" class="w-full px-3 py-2 border rounded-lg" placeholder="e.g. Cash, Check, Lovevery Play Gym">
+      </div>
+      <div class="grid grid-cols-3 gap-2">
+        <div class="col-span-2">
+          <label class="text-xs font-semibold text-gray-600">Amount / value <span class="font-normal text-gray-400">(optional)</span></label>
+          <input id="fAmount" type="number" inputmode="decimal" min="0" step="any" class="w-full px-3 py-2 border rounded-lg" placeholder="0">
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-gray-600">Currency</label>
+          <select id="fCurrency" class="w-full px-2 py-2 border rounded-lg bg-white">
+            <option value="USD">$ USD</option><option value="ILS">&#8362; ILS</option><option value="EUR">&euro; EUR</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="text-xs font-semibold text-gray-600">Month <span class="font-normal text-gray-400">(optional)</span></label>
+          <input id="fDate" type="month" class="w-full px-3 py-2 border rounded-lg">
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-gray-600">Whose side</label>
+          <select id="fSide" class="w-full px-2 py-2 border rounded-lg bg-white">
+            <option value="">—</option><option value="Taly">Taly</option><option value="Doug">Doug</option><option value="Both">Both</option>
+          </select>
+        </div>
+      </div>
+      <div id="fTyWrap">
+        <label class="text-xs font-semibold text-gray-600">Thank-you note</label>
+        <div class="flex gap-2 mt-1" id="fTy">
+          <button type="button" data-v="no" class="ty-opt flex-1 py-2 border rounded-lg text-sm">Not yet</button>
+          <button type="button" data-v="yes" class="ty-opt flex-1 py-2 border rounded-lg text-sm">Sent &#9989;</button>
+          <button type="button" data-v="na" class="ty-opt flex-1 py-2 border rounded-lg text-sm">N/A</button>
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-gray-600">Notes</label>
+        <textarea id="fNotes" rows="2" dir="auto" class="w-full px-3 py-2 border rounded-lg" placeholder="Anything worth remembering"></textarea>
+      </div>
+    </div>
+    <div class="px-5 py-4 border-t flex gap-2 sticky bottom-0 bg-white">
+      <button id="fDelete" onclick="deleteEntry()" class="px-4 py-2 text-red-600 border border-red-200 rounded-lg text-sm hover:bg-red-50">Delete</button>
+      <div class="flex-1"></div>
+      <button onclick="closeForm()" class="px-4 py-2 border rounded-lg text-sm">Cancel</button>
+      <button onclick="saveEntry()" class="px-5 py-2 bg-navy-700 text-white rounded-lg text-sm font-medium hover:bg-navy-800">Save</button>
+    </div>
+  </div>
+</div>
+<datalist id="peopleList"></datalist>
+<datalist id="occList"></datalist>
+
+<div id="toast" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-navy-800 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50"></div>
+
+<script>
+// ====== SEED DATA (imported from existing lists; used only on first sign-in) ======
+var SEED_RECEIVED = [{"id": "seed001", "person": "ניצן רוטשילד ואנה פתחוב", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 800, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed002", "person": "Cathy Mastrangelo", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": null, "currency": "ILS", "gift": "Gift from Zola registry", "notes": ""}, {"id": "seed003", "person": "גיטה", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 250, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed004", "person": "רינה לוי", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 250, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed005", "person": "Noga & Shaul Matiteyahu", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 10000, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed006", "person": "יהודה ואורלי מתיתיהו", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 1018, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed007", "person": "Ofer & Revital Matiteyahu", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 3500, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed008", "person": "Yosi & Yerusha", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 4000, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed009", "person": "סימון פור", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 1000, "currency": "ILS", "gift": "Cash", "notes": "Together: Simon, Etty, Zehava, Adi"}, {"id": "seed010", "person": "אתי ואיציק ג׳אן", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 600, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed011", "person": "גולדי קטרי (אליאסי)", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed012", "person": "שרה ניסים", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 800, "currency": "ILS", "gift": "Cash", "notes": "Together: Sarah, Gaby, & Rikki"}, {"id": "seed013", "person": "פורטונה", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 200, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed014", "person": "Rosie & Kohava", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 200, "currency": "USD", "gift": "Cash", "notes": ""}, {"id": "seed015", "person": "Inbal & Chaim Bar David", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed016", "person": "נורית ועקיבא מלאכי", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 150, "currency": "USD", "gift": "Cash", "notes": ""}, {"id": "seed017", "person": "רויטל וספיר סויסה", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 200, "currency": "EUR", "gift": "Cash", "notes": ""}, {"id": "seed018", "person": "מוטי ואסתר שרפמן", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 600, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed019", "person": "מלכה ושמואל איצקוביץ", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed020", "person": "דינה ופול תומאס", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 500, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed021", "person": "תמי, יהושוע, מעיין וסיוון סולומון", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 1000, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed022", "person": "לילי פור (יוסי ז״ל)", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed023", "person": "אתי ויעקוב פור", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed024", "person": "ליאור פור", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 400, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed025", "person": "חנה שלמה", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed026", "person": "מזל וישראל כהן", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 100, "currency": "USD", "gift": "Cash", "notes": ""}, {"id": "seed027", "person": "ניצן ותמי כהן", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 150, "currency": "USD", "gift": "Cash", "notes": ""}, {"id": "seed028", "person": "יוסי קרדש", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed029", "person": "שלמה צרפתי", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 500, "currency": "ILS", "gift": "Cash", "notes": "Together: Shlomo & Haim"}, {"id": "seed030", "person": "צחי בן משה", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed031", "person": "אברהם ושושנה בן משה", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 500, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed032", "person": "אילן ואורית בן משה", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 500, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed033", "person": "אנה וסמי אברגיל", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed034", "person": "עפרה נבול", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed035", "person": "גמאלי מאיר", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 250, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed036", "person": "אהובה יוסף", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 400, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed037", "person": "זמלן וציפי אליהו", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 500, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed038", "person": "יוסי אליהו", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed039", "person": "דוד ונעמי אליהו", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 500, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed040", "person": "אתי ודוד אהרוני", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed041", "person": "פרח", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed042", "person": "חיים אהרוני", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed043", "person": "יוסי אהרוני", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed044", "person": "רחל ויואל שמואל", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 500, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed045", "person": "יהודית יששכר", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 500, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed046", "person": "שושי ארד", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed047", "person": "רוני ורונית יששכר (רק רוני)", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed048", "person": "סימי שיטרית", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 500, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed049", "person": "אסתר סעד", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 500, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed050", "person": "שוש ורמי", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 500, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed051", "person": "שלי עיואן", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 400, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed052", "person": "לימור רזואן", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 400, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed053", "person": "עמירה ויוני", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 1000, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed054", "person": "שמחה ואלי חזום", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 600, "currency": "ILS", "gift": "Check", "notes": ""}, {"id": "seed055", "person": "הילה ומשה שוהם", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 700, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed056", "person": "כרמלה שוהם", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 800, "currency": "ILS", "gift": "Cash", "notes": "w/ Einat"}, {"id": "seed057", "person": "אורן שוהם", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 350, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed058", "person": "ברוך, רחל ויובל בן משה", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 1000, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed059", "person": "ליאת בן משה ובן זוגה", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 800, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed060", "person": "סימה ואבישי ירמיהו", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 800, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed061", "person": "Shem Tov & Tzvia Amiri", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 100, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed062", "person": "גמאלי נעימה", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 300, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed063", "person": "Avner", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 1200, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed064", "person": "Irit & Udi Greenfeld", "occasion": "Our Wedding", "date": "", "side": "", "thankYou": "na", "amount": 100, "currency": "USD", "gift": "Cash", "notes": ""}, {"id": "seed065", "person": "Kayla", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "Little Lox Co blanket", "notes": ""}, {"id": "seed066", "person": "Taylor Ross", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "Book and Jellycat", "notes": ""}, {"id": "seed067", "person": "Cathy and Craig", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "$100 food delivery gift card + book + bath toys + teether", "notes": ""}, {"id": "seed068", "person": "Shalin & Irene", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "Stroller toy + Hebrew blocks", "notes": ""}, {"id": "seed069", "person": "Matiteyahus", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "yes", "amount": 1500, "currency": "USD", "gift": "Clothes, bassinet, other misc goodies", "notes": ""}, {"id": "seed070", "person": "Sarah Klamans", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "Book, outfit, and stuffed animal", "notes": "Together with Jena Goldman"}, {"id": "seed071", "person": "Jena Goldman", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "Book, outfit, and stuffed animal", "notes": "Together with Sarah Klamans"}, {"id": "seed072", "person": "Pauline Tran", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "yes", "amount": 50, "currency": "USD", "gift": "Cash", "notes": ""}, {"id": "seed073", "person": "Rikki (Mom's Friend)", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "Four outfits", "notes": ""}, {"id": "seed074", "person": "Jess Bush", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "Lovevery Play Gym", "notes": ""}, {"id": "seed075", "person": "Gillad", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "Nanit & Shabbat cup", "notes": ""}, {"id": "seed076", "person": "Markus & Kristen", "occasion": "Noa's Birth", "date": "2025-06", "side": "Doug", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "Books!", "notes": ""}, {"id": "seed077", "person": "Kathleen Limon", "occasion": "Noa's Birth", "date": "2025-06", "side": "Doug", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "$100 food delivery gift card", "notes": ""}, {"id": "seed078", "person": "Pickards", "occasion": "Noa's Birth", "date": "2025-06", "side": "Doug", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "Stroller, clothes, other miscellaneous goodies", "notes": ""}, {"id": "seed079", "person": "Inga", "occasion": "Noa's Birth", "date": "2025-06", "side": "Doug", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "Fish", "notes": ""}, {"id": "seed080", "person": "Greg", "occasion": "Noa's Birth", "date": "2025-06", "side": "Doug", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "Jewish food book", "notes": ""}, {"id": "seed081", "person": "Rob", "occasion": "Noa's Birth", "date": "2025-06", "side": "Doug", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "Lovevery play kit", "notes": ""}, {"id": "seed082", "person": "Safta", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "no", "amount": 200, "currency": "USD", "gift": "Cash", "notes": ""}, {"id": "seed083", "person": "Saba", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "no", "amount": 1000, "currency": "ILS", "gift": "Cash", "notes": "~$300"}, {"id": "seed084", "person": "Itzik Swissa", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "no", "amount": 300, "currency": "ILS", "gift": "Cash", "notes": ""}, {"id": "seed085", "person": "Irit", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "no", "amount": 550, "currency": "ILS", "gift": "Gift from Shilev", "notes": ""}, {"id": "seed086", "person": "Ofer and Revital", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "no", "amount": 350, "currency": "ILS", "gift": "Gift from baby store", "notes": ""}, {"id": "seed087", "person": "Nitzan", "occasion": "Noa's Birth", "date": "2025-06", "side": "Taly", "thankYou": "yes", "amount": null, "currency": "USD", "gift": "Misc baby goods (bath books, lovey, plate and silverware)", "notes": ""}, {"id": "seed088", "person": "Sabrina", "occasion": "Noa's Birth", "date": "2025-06", "side": "Both", "thankYou": "no", "amount": null, "currency": "USD", "gift": "Outfit and stuffed octopus", "notes": ""}];
+
+// ====== STATE ======
+var received = [], given = [];
+var currentTab = 'received';
+var tyPendingOnly = false;
+var collapsed = {};
+var openPerson = null;
+var editing = null; // {list:'received'|'given', id:...|null}
+var formTy = 'no';
+try { currentTab = localStorage.getItem('boGiftsTab') || 'received'; collapsed = JSON.parse(localStorage.getItem('boGiftsCollapsed') || '{}'); } catch(e) {}
+
+// ====== FIREBASE ======
+var ALLOWED_EMAILS = ['taly.matiteyahu@gmail.com', 'doug.pickard@gmail.com'];
+var db = null, auth = null, currentUser = null;
+var _dataLoaded = false, _lastBackup = 0, BACKUP_INTERVAL = 1000 * 60 * 60, _unsub = [];
+
+function $(id) { return document.getElementById(id); }
+function show(which) {
+  $('loginScreen').style.display = which === 'login' ? 'flex' : 'none';
+  $('setupScreen').style.display = which === 'setup' ? 'block' : 'none';
+  $('appContent').style.display = which === 'app' ? '' : 'none';
+  document.querySelector('header').style.display = which === 'app' ? '' : 'none';
+}
+
+if (!window.FIREBASE_CONFIG || !window.FIREBASE_CONFIG.apiKey) {
+  show('setup');
+} else {
+  firebase.initializeApp(window.FIREBASE_CONFIG);
+  db = firebase.firestore();
+  db.settings({ experimentalForceLongPolling: true });
+  db.enablePersistence({ synchronizeTabs: true }).catch(function(err) { console.log('Offline persistence:', err.code); });
+  auth = firebase.auth();
+  auth.onAuthStateChanged(function(user) {
+    if (user) {
+      if (ALLOWED_EMAILS.indexOf((user.email || '').toLowerCase()) < 0) {
+        $('loginErr').textContent = 'Access denied for ' + user.email + '.';
+        auth.signOut();
+        return;
+      }
+      currentUser = user;
+      $('gearUser').textContent = user.email;
+      $('gearSignOut').classList.remove('hidden');
+      show('app');
+      render();
+      loadFromFirestore();
+    } else {
+      currentUser = null;
+      _unsub.forEach(function(u) { u(); }); _unsub = [];
+      _dataLoaded = false;
+      $('gearUser').textContent = 'Not signed in';
+      $('gearSignOut').classList.add('hidden');
+      show('login');
+    }
+  });
+}
+
+function doSignIn() {
+  $('loginErr').textContent = '';
+  var provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  auth.signInWithPopup(provider).catch(function(err) { $('loginErr').textContent = err.message; });
+}
+function doSignOut() { auth.signOut(); }
+function toggleGearMenu() { $('gearMenu').classList.toggle('hidden'); }
+document.addEventListener('click', function(e) {
+  var m = $('gearMenu');
+  if (!m.classList.contains('hidden') && !m.contains(e.target) && e.target !== $('gearBtn')) m.classList.add('hidden');
+});
+
+function saveToFirestore() {
+  if (!currentUser || !_dataLoaded) return;
+  var now = Date.now(), by = currentUser.email;
+  db.collection('data').doc('received').set({ items: JSON.stringify(received), count: received.length, updatedAt: now, updatedBy: by });
+  db.collection('data').doc('given').set({ items: JSON.stringify(given), count: given.length, updatedAt: now, updatedBy: by });
+  if (now - _lastBackup > BACKUP_INTERVAL) {
+    _lastBackup = now;
+    db.collection('backups').doc(new Date().toISOString().substring(0, 10)).set({
+      received: JSON.stringify(received), given: JSON.stringify(given), ts: now
+    }).catch(function(e) { console.log('Backup error:', e); });
+  }
+}
+
+function loadFromFirestore() {
+  Promise.all([db.collection('data').doc('received').get(), db.collection('data').doc('given').get()])
+  .then(function(docs) {
+    if (!docs[0].exists && !docs[1].exists) {
+      // First run: seed with imported lists
+      received = SEED_RECEIVED.slice(); given = [];
+      _dataLoaded = true;
+      saveToFirestore();
+      toast('Imported ' + received.length + ' gifts from your existing lists');
+    } else {
+      if (docs[0].exists) { try { received = JSON.parse(docs[0].data().items); } catch(e) {} }
+      if (docs[1].exists) { try { given = JSON.parse(docs[1].data().items); } catch(e) {} }
+      _dataLoaded = true;
+    }
+    render();
+    startRealtimeSync();
+  }).catch(function(err) {
+    console.log('Load error:', err);
+    $('main').innerHTML = '<div class="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 text-sm">Couldn\'t load data: ' + esc(err.message) + '<br>If this says "permissions", check the Firestore rules in SETUP.md.</div>';
+  });
+}
+
+function startRealtimeSync() {
+  _unsub.forEach(function(u) { u(); }); _unsub = [];
+  ['received', 'given'].forEach(function(name) {
+    _unsub.push(db.collection('data').doc(name).onSnapshot(function(doc) {
+      if (!doc.exists || doc.metadata.hasPendingWrites) return;
+      try {
+        var items = JSON.parse(doc.data().items);
+        if (name === 'received') received = items; else given = items;
+        if ($('modal').classList.contains('hidden')) render();
+      } catch(e) {}
+    }));
+  });
+}
+
+// ====== HELPERS ======
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function norm(s) { return String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim(); }
+function namesMatch(a, b) { a = norm(a); b = norm(b); return !!a && !!b && (a === b || a.indexOf(b) >= 0 || b.indexOf(a) >= 0); }
+var SYM = { USD: '$', ILS: '₪', EUR: '€' };
+function money(amt, cur) { return (SYM[cur] || '') + Number(amt).toLocaleString('en-US', { maximumFractionDigits: 2 }) + (SYM[cur] ? '' : ' ' + cur); }
+function giftText(e) {
+  var parts = [];
+  if (e.amount != null && e.amount !== '') parts.push('<span class="font-semibold text-navy-700">' + money(e.amount, e.currency) + '</span>');
+  if (e.gift) parts.push('<span dir="auto">' + esc(e.gift) + '</span>');
+  return parts.join(' <span class="text-gray-300">&middot;</span> ') || '<span class="text-gray-400 italic">no details</span>';
+}
+function fmtMonth(d) {
+  if (!d) return '';
+  var p = d.split('-'); var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(p[1], 10) - 1];
+  return (m ? m + ' ' : '') + p[0];
+}
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function toast(msg) { var t = $('toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(toast._t); toast._t = setTimeout(function() { t.classList.add('hidden'); }, 2800); }
+function totalsLine(list) {
+  var t = {}; list.forEach(function(e) { if (e.amount != null && e.amount !== '') t[e.currency] = (t[e.currency] || 0) + Number(e.amount); });
+  return Object.keys(t).map(function(c) { return money(t[c], c); }).join(' + ');
+}
+function sideChip(s) {
+  if (!s) return '';
+  var cls = s === 'Taly' ? 'bg-cream-200 text-navy-800' : s === 'Doug' ? 'bg-navy-100 text-navy-700' : 'bg-gray-100 text-gray-600';
+  return '<span class="chip ' + cls + '">' + esc(s) + '</span>';
+}
+function matchesSearch(e, q) {
+  if (!q) return true;
+  return norm([e.person, e.gift, e.occasion, e.notes, e.side, e.amount].join(' ')).indexOf(q) >= 0;
+}
+
+// ====== TABS & RENDER ======
+function switchTab(t) {
+  currentTab = t; openPerson = null;
+  try { localStorage.setItem('boGiftsTab', t); } catch(e) {}
+  render();
+}
+function toggleTyFilter() { tyPendingOnly = !tyPendingOnly; render(); }
+
+function render() {
+  document.querySelectorAll('.tab').forEach(function(b) {
+    var on = b.dataset.tab === currentTab;
+    b.classList.toggle('tab-active', on); b.classList.toggle('text-gray-500', !on);
+  });
+  var isPeople = currentTab === 'people';
+  $('occFilter').style.display = isPeople ? 'none' : '';
+  $('tyFilterBtn').style.display = currentTab === 'received' ? '' : 'none';
+  $('tyFilterBtn').className = 'px-3 py-2 border rounded-lg text-sm whitespace-nowrap ' + (tyPendingOnly ? 'bg-cream-200 border-cream-400 text-navy-800 font-medium' : 'bg-white border-cream-300 text-gray-600');
+  $('addBtn').textContent = currentTab === 'given' ? '+ Log gift given' : currentTab === 'received' ? '+ Log gift received' : '+ Add gift';
+  $('search').placeholder = isPeople ? 'Search a name…' : 'Search person, gift, occasion…';
+  renderOccFilter();
+  renderDatalists();
+  renderSummary();
+  if (isPeople) renderPeople(); else renderList();
+}
+
+function renderOccFilter() {
+  var list = currentTab === 'given' ? given : received;
+  var sel = $('occFilter'), cur = sel.value;
+  var occs = {}; list.forEach(function(e) { if (e.occasion) occs[e.occasion] = 1; });
+  var h = '<option value="">All occasions</option>';
+  Object.keys(occs).sort().forEach(function(o) { h += '<option value="' + esc(o) + '"' + (o === cur ? ' selected' : '') + '>' + esc(o) + '</option>'; });
+  sel.innerHTML = h;
+  if (cur && !occs[cur]) sel.value = '';
+}
+
+function renderDatalists() {
+  var people = {}, occs = {};
+  received.concat(given).forEach(function(e) { if (e.person) people[e.person] = 1; if (e.occasion) occs[e.occasion] = 1; });
+  $('peopleList').innerHTML = Object.keys(people).sort().map(function(p) { return '<option value="' + esc(p) + '">'; }).join('');
+  $('occList').innerHTML = Object.keys(occs).sort().map(function(o) { return '<option value="' + esc(o) + '">'; }).join('');
+}
+
+function stat(label, val) { return '<div><div class="text-xs opacity-75">' + label + '</div><div class="text-lg font-bold">' + val + '</div></div>'; }
+function renderSummary() {
+  var h;
+  if (currentTab === 'received') {
+    var occ = {}; received.forEach(function(e) { occ[e.occasion] = 1; });
+    var pending = received.filter(function(e) { return e.thankYou === 'no'; }).length;
+    h = stat('Gifts received', received.length) + stat('Occasions', Object.keys(occ).length) + stat('Thank-yous pending', pending);
+  } else if (currentTab === 'given') {
+    var occ2 = {}, ppl = {}; given.forEach(function(e) { occ2[e.occasion] = 1; ppl[norm(e.person)] = 1; });
+    h = stat('Gifts given', given.length) + stat('Occasions', Object.keys(occ2).length) + stat('People', Object.keys(ppl).length);
+  } else {
+    var all = {}; received.concat(given).forEach(function(e) { all[norm(e.person)] = 1; });
+    h = stat('People', Object.keys(all).length) + stat('Received', received.length) + stat('Given', given.length);
+  }
+  $('summary').innerHTML = h;
+}
+
+function renderList() {
+  var listName = currentTab, list = listName === 'given' ? given : received;
+  var q = norm($('search').value), occF = $('occFilter').value;
+  var items = list.filter(function(e) {
+    return matchesSearch(e, q) && (!occF || e.occasion === occF) && (listName !== 'received' || !tyPendingOnly || e.thankYou === 'no');
+  });
+  if (!_dataLoaded) { $('main').innerHTML = '<div class="text-center text-gray-400 py-16 text-sm">Loading…</div>'; return; }
+  if (!items.length) {
+    $('main').innerHTML = '<div class="text-center py-16"><div class="text-4xl mb-2">&#127873;</div><div class="text-gray-500 text-sm">' +
+      (list.length ? 'Nothing matches.' : listName === 'given' ? 'No gifts given logged yet. Tap “+ Log gift given” to add one.' : 'No gifts yet.') + '</div></div>';
+    return;
+  }
+  // group by occasion
+  var groups = {};
+  items.forEach(function(e) { var k = e.occasion || '(No occasion)'; (groups[k] = groups[k] || []).push(e); });
+  var keys = Object.keys(groups).sort(function(a, b) {
+    var da = groups[a].reduce(function(m, e) { return e.date > m ? e.date : m; }, ''), dbb = groups[b].reduce(function(m, e) { return e.date > m ? e.date : m; }, '');
+    if (da !== dbb) return da < dbb ? 1 : -1; // newest first; undated last
+    return a.localeCompare(b);
+  });
+  var forceOpen = !!q || tyPendingOnly;
+  var h = '';
+  keys.forEach(function(k) {
+    var g = groups[k].slice().sort(function(a, b) { return (a.person || '').localeCompare(b.person || ''); });
+    var ck = listName + '|' + k, isCol = !forceOpen && collapsed[ck];
+    var dates = {}; g.forEach(function(e) { if (e.date) dates[fmtMonth(e.date)] = 1; });
+    var tot = totalsLine(g);
+    var pend = listName === 'received' ? g.filter(function(e) { return e.thankYou === 'no'; }).length : 0;
+    h += '<section class="mb-4 bg-white rounded-xl border border-cream-200 shadow-sm overflow-hidden">';
+    h += '<button onclick="toggleGroup(\'' + esc(ck).replace(/\\/g, '\\\\').replace(/&#39;/g, "\\'") + '\')" class="w-full flex items-center gap-3 px-4 py-3 bg-cream-100 text-left">';
+    h += '<span class="caret text-navy-400 text-xs ' + (isCol ? 'collapsed-caret' : '') + '">&#9660;</span>';
+    h += '<div class="flex-1 min-w-0"><div class="font-semibold text-navy-800">' + esc(k) + '</div>';
+    h += '<div class="text-xs text-gray-500">' + [Object.keys(dates).join(', '), g.length + ' gift' + (g.length === 1 ? '' : 's'), tot].filter(Boolean).join(' &middot; ') + '</div></div>';
+    if (pend) h += '<span class="chip bg-amber-100 text-amber-800">' + pend + ' thank-you' + (pend === 1 ? '' : 's') + ' to send</span>';
+    h += '</button>';
+    h += '<div class="grp-body divide-y divide-cream-100' + (isCol ? ' collapsed' : '') + '">';
+    g.forEach(function(e) { h += entryRow(e, listName); });
+    h += '</div></section>';
+  });
+  $('main').innerHTML = h;
+}
+
+function entryRow(e, listName) {
+  var h = '<div class="px-4 py-3 flex items-start gap-3">';
+  h += '<div class="flex-1 min-w-0">';
+  h += '<div class="flex items-center gap-2 flex-wrap"><button onclick="goPerson(\'' + esc(norm(e.person)) + '\')" class="font-semibold text-gray-900 hover:text-navy-600 hover:underline text-left" dir="auto">' + esc(e.person) + '</button>' + sideChip(e.side) + '</div>';
+  h += '<div class="text-sm text-gray-700 mt-0.5">' + giftText(e) + '</div>';
+  if (e.notes) h += '<div class="text-xs text-gray-400 mt-0.5" dir="auto">' + esc(e.notes) + '</div>';
+  h += '</div>';
+  if (listName === 'received') {
+    if (e.thankYou === 'yes') h += '<button onclick="cycleTy(\'' + e.id + '\')" class="chip bg-emerald-50 text-emerald-700 border border-emerald-200 mt-0.5" title="Thank-you sent (tap to change)">&#9989; Thanked</button>';
+    else if (e.thankYou === 'no') h += '<button onclick="cycleTy(\'' + e.id + '\')" class="chip bg-amber-50 text-amber-800 border border-amber-200 mt-0.5" title="Tap when sent">&#9993;&#65039; Not yet</button>';
+    else h += '<span class="chip bg-gray-50 text-gray-400 mt-0.5">n/a</span>';
+  }
+  h += '<button onclick="openForm(\'' + listName + '\',\'' + e.id + '\')" class="text-gray-300 hover:text-navy-600 px-1" title="Edit">&#9998;</button>';
+  h += '</div>';
+  return h;
+}
+
+function toggleGroup(k) {
+  collapsed[k] = !collapsed[k];
+  try { localStorage.setItem('boGiftsCollapsed', JSON.stringify(collapsed)); } catch(e) {}
+  render();
+}
+function cycleTy(id) {
+  var e = received.find(function(x) { return x.id === id; }); if (!e) return;
+  e.thankYou = e.thankYou === 'yes' ? 'no' : 'yes';
+  saveToFirestore(); render();
+  if (e.thankYou === 'yes') toast('Thank-you marked sent for ' + e.person);
+}
+
+// ====== BY PERSON ======
+function goPerson(key) {
+  currentTab = 'people'; openPerson = key; $('search').value = '';
+  try { localStorage.setItem('boGiftsTab', 'people'); } catch(e) {}
+  render(); window.scrollTo(0, 0);
+}
+function renderPeople() {
+  if (!_dataLoaded) { $('main').innerHTML = '<div class="text-center text-gray-400 py-16 text-sm">Loading…</div>'; return; }
+  var q = norm($('search').value);
+  var people = {};
+  function add(e, kind) {
+    var k = norm(e.person); if (!k) return;
+    var p = people[k] = people[k] || { key: k, name: e.person, rec: [], giv: [] };
+    p[kind].push(e);
+  }
+  received.forEach(function(e) { add(e, 'rec'); });
+  given.forEach(function(e) { add(e, 'giv'); });
+  var list = Object.keys(people).map(function(k) { return people[k]; })
+    .filter(function(p) { return !q || p.key.indexOf(q) >= 0 || (openPerson && p.key === openPerson); })
+    .sort(function(a, b) { return a.name.localeCompare(b.name); });
+  if (openPerson && people[openPerson]) {
+    // pin the opened person to the top
+    list = [people[openPerson]].concat(list.filter(function(p) { return p.key !== openPerson; }));
+  }
+  if (!list.length) { $('main').innerHTML = '<div class="text-center text-gray-500 text-sm py-16">No one matches “' + esc($('search').value) + '”.</div>'; return; }
+  var h = '<div class="bg-white rounded-xl border border-cream-200 shadow-sm divide-y divide-cream-100 overflow-hidden">';
+  list.forEach(function(p) {
+    var open = p.key === openPerson;
+    h += '<div>';
+    h += '<button onclick="togglePerson(\'' + esc(p.key) + '\')" class="w-full px-4 py-3 flex items-center gap-3 text-left ' + (open ? 'bg-cream-100' : 'hover:bg-cream-50') + '">';
+    h += '<div class="flex-1 min-w-0 font-semibold text-gray-900" dir="auto">' + esc(p.name) + '</div>';
+    if (p.rec.length) h += '<span class="chip bg-cream-200 text-navy-800">' + p.rec.length + ' received</span>';
+    if (p.giv.length) h += '<span class="chip bg-navy-100 text-navy-700">' + p.giv.length + ' given</span>';
+    h += '</button>';
+    if (open) h += personDetail(p);
+    h += '</div>';
+  });
+  h += '</div>';
+  $('main').innerHTML = h;
+}
+function personDetail(p) {
+  // also surface similar-named entries (e.g. "Ofer & Revital" vs "Ofer and Revital Matiteyahu")
+  var simRec = received.filter(function(e) { return norm(e.person) !== p.key && namesMatch(e.person, p.name); });
+  var simGiv = given.filter(function(e) { return norm(e.person) !== p.key && namesMatch(e.person, p.name); });
+  function block(title, arr, sim, kind) {
+    var h = '<div class="flex-1 min-w-0"><div class="text-xs font-bold uppercase tracking-wide text-navy-500 mb-2">' + title + '</div>';
+    if (!arr.length && !sim.length) h += '<div class="text-sm text-gray-400 italic mb-2">Nothing logged</div>';
+    arr.concat(sim).forEach(function(e) {
+      var isSim = sim.indexOf(e) >= 0;
+      h += '<div class="mb-2 bg-white rounded-lg border border-cream-200 px-3 py-2">';
+      h += '<div class="text-xs text-gray-500">' + esc(e.occasion || '(No occasion)') + (e.date ? ' &middot; ' + fmtMonth(e.date) : '') + (isSim ? ' &middot; <span dir="auto">as “' + esc(e.person) + '”</span>' : '') + '</div>';
+      h += '<div class="text-sm">' + giftText(e) + '</div>';
+      if (e.notes) h += '<div class="text-xs text-gray-400" dir="auto">' + esc(e.notes) + '</div>';
+      h += '</div>';
+    });
+    return h + '</div>';
+  }
+  var h = '<div class="px-4 pb-4 pt-1 bg-cream-100"><div class="flex flex-col sm:flex-row gap-4">';
+  h += block('They gave us', p.rec, simRec, 'received');
+  h += block('We gave them', p.giv, simGiv, 'given');
+  h += '</div>';
+  h += '<button onclick="openForm(\'given\',null,\'' + esc(p.name).replace(/&#39;/g, "\\'") + '\')" class="mt-2 px-3 py-1.5 bg-navy-700 text-white rounded-lg text-xs font-medium">+ Log a gift to ' + esc(p.name) + '</button>';
+  h += '</div>';
+  return h;
+}
+function togglePerson(k) { openPerson = openPerson === k ? null : k; render(); }
+
+// ====== FORM ======
+function setTy(v) {
+  formTy = v;
+  document.querySelectorAll('.ty-opt').forEach(function(b) {
+    var on = b.dataset.v === v;
+    b.className = 'ty-opt flex-1 py-2 border rounded-lg text-sm ' + (on ? 'bg-navy-700 text-white border-navy-700' : 'bg-white text-gray-600');
+  });
+}
+document.querySelectorAll('.ty-opt').forEach(function(b) { b.onclick = function() { setTy(b.dataset.v); }; });
+
+function openForm(listName, id, presetPerson) {
+  listName = listName || (currentTab === 'given' ? 'given' : 'received');
+  if (currentTab === 'people' && !listName) listName = 'received';
+  var list = listName === 'given' ? given : received;
+  var e = id ? list.find(function(x) { return x.id === id; }) : null;
+  editing = { list: listName, id: e ? e.id : null };
+  $('formTitle').textContent = (e ? 'Edit ' : 'Log ') + (listName === 'given' ? 'gift given' : 'gift received');
+  $('fPersonLabel').textContent = listName === 'given' ? 'To' : 'From';
+  $('fPerson').value = e ? e.person : (presetPerson || '');
+  $('fOccasion').value = e ? e.occasion : ($('occFilter').value || '');
+  $('fGift').value = e ? e.gift : '';
+  $('fAmount').value = e && e.amount != null ? e.amount : '';
+  $('fCurrency').value = e ? (e.currency || 'USD') : 'USD';
+  $('fDate').value = e ? (e.date || '') : '';
+  $('fSide').value = e ? (e.side || '') : '';
+  $('fNotes').value = e ? (e.notes || '') : '';
+  $('fTyWrap').style.display = listName === 'received' ? '' : 'none';
+  setTy(e ? (e.thankYou || 'no') : 'no');
+  $('fDelete').style.display = e ? '' : 'none';
+  renderHint();
+  $('modal').classList.remove('hidden');
+  if (!e && !presetPerson) setTimeout(function() { $('fPerson').focus(); }, 50);
+}
+function closeForm() { $('modal').classList.add('hidden'); editing = null; render(); }
+
+// When logging a gift, show what's on record with this person (the "return the favor" lookup)
+function renderHint() {
+  var name = $('fPerson').value.trim(), el = $('fHint');
+  if (!editing || name.length < 2) { el.innerHTML = ''; return; }
+  var other = editing.list === 'given' ? received : given;
+  var same = editing.list === 'given' ? given : received;
+  var hitsO = other.filter(function(e) { return namesMatch(e.person, name); });
+  var hitsS = same.filter(function(e) { return namesMatch(e.person, name) && e.id !== editing.id; });
+  if (!hitsO.length && !hitsS.length) { el.innerHTML = ''; return; }
+  function line(e) { return '<li><span class="text-gray-500">' + esc(e.occasion || '—') + (e.date ? ' (' + fmtMonth(e.date) + ')' : '') + ':</span> ' + giftText(e) + (namesMatch(e.person, name) && norm(e.person) !== norm(name) ? ' <span class="text-gray-400" dir="auto">— ' + esc(e.person) + '</span>' : '') + '</li>'; }
+  var h = '<div class="bg-cream-100 border border-cream-300 rounded-lg px-3 py-2 text-xs space-y-1">';
+  if (hitsO.length) h += '<div class="font-semibold text-navy-700">' + (editing.list === 'given' ? '&#127873; They gave you:' : '&#127873; You gave them:') + '</div><ul class="space-y-0.5">' + hitsO.slice(0, 6).map(line).join('') + '</ul>';
+  if (hitsS.length) h += '<div class="font-semibold text-navy-700 pt-1">' + (editing.list === 'given' ? 'You\'ve also given them:' : 'They\'ve also given you:') + '</div><ul class="space-y-0.5">' + hitsS.slice(0, 6).map(line).join('') + '</ul>';
+  el.innerHTML = h + '</div>';
+}
+
+function saveEntry() {
+  var person = $('fPerson').value.trim();
+  if (!person) { $('fPerson').focus(); toast('Add a name'); return; }
+  var amt = $('fAmount').value.trim();
+  var data = {
+    person: person,
+    occasion: $('fOccasion').value.trim(),
+    gift: $('fGift').value.trim(),
+    amount: amt === '' ? null : Number(amt),
+    currency: $('fCurrency').value,
+    date: $('fDate').value || '',
+    side: $('fSide').value,
+    notes: $('fNotes').value.trim()
+  };
+  if (editing.list === 'received') data.thankYou = formTy;
+  var list = editing.list === 'given' ? given : received;
+  if (editing.id) {
+    var e = list.find(function(x) { return x.id === editing.id; });
+    Object.assign(e, data, { updatedAt: Date.now() });
+  } else {
+    data.id = uid(); data.createdAt = Date.now(); data.createdBy = currentUser ? currentUser.email : '';
+    list.push(data);
+  }
+  saveToFirestore();
+  toast('Saved');
+  closeForm();
+}
+function deleteEntry() {
+  if (!editing || !editing.id) return;
+  var btn = $('fDelete');
+  if (btn.dataset.confirm !== '1') { btn.dataset.confirm = '1'; btn.textContent = 'Tap again to delete'; setTimeout(function() { btn.dataset.confirm = ''; btn.textContent = 'Delete'; }, 3000); return; }
+  btn.dataset.confirm = ''; btn.textContent = 'Delete';
+  if (editing.list === 'given') given = given.filter(function(x) { return x.id !== editing.id; });
+  else received = received.filter(function(x) { return x.id !== editing.id; });
+  saveToFirestore();
+  toast('Deleted');
+  closeForm();
+}
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && !$('modal').classList.contains('hidden')) closeForm(); });
+
+// ====== EXPORT ======
+function exportCSV() {
+  var cols = ['Type', 'Person', 'Occasion', 'Month', 'Gift', 'Amount', 'Currency', 'Side', 'Thank-you', 'Notes'];
+  function q(v) { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+  var rows = [cols.join(',')];
+  received.forEach(function(e) { rows.push(['Received', e.person, e.occasion, e.date, e.gift, e.amount, e.currency, e.side, {yes:'Sent',no:'Not yet',na:'N/A'}[e.thankYou] || '', e.notes].map(q).join(',')); });
+  given.forEach(function(e) { rows.push(['Given', e.person, e.occasion, e.date, e.gift, e.amount, e.currency, e.side, '', e.notes].map(q).join(',')); });
+  var blob = new Blob(['﻿' + rows.join('\n')], { type: 'text/csv;charset=utf-8' });
+  var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'bo-gifts-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click();
+}
+
+// ====== PWA ======
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('sw.js').catch(function(e) { console.log('SW error', e); });
+}
+</script>
+</body>
+</html>

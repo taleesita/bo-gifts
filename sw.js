@@ -1,4 +1,4 @@
-var CACHE_NAME = 'bo-gifts-v2';
+var CACHE_NAME = 'bo-gifts-v3';
 var urlsToCache = ['./', './index.html', './config.js', './manifest.json', './icon-192.png', './apple-touch-icon.png', './pencil.png'];
 
 self.addEventListener('install', function(event) {

@@ -1,5 +1,5 @@
-var CACHE_NAME = 'bo-gifts-v1';
-var urlsToCache = ['./', './index.html', './config.js', './manifest.json', './icon-192.png', './apple-touch-icon.png'];
+var CACHE_NAME = 'bo-gifts-v2';
+var urlsToCache = ['./', './index.html', './config.js', './manifest.json', './icon-192.png', './apple-touch-icon.png', './pencil.png'];
 
 self.addEventListener('install', function(event) {
   event.waitUntil(caches.open(CACHE_NAME).then(function(cache) { return cache.addAll(urlsToCache); }));
